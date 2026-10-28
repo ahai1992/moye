@@ -1,49 +1,42 @@
-# 墨页 · 本地 Markdown 编辑器
+# 墨页
 
 **中文** · [English](README_EN.md)
 
-墨页是一款轻量的 Windows 桌面 Markdown 编辑器。它把源码编辑和可视化预览放在同一编辑区，适合希望专注写作、同时保留 Markdown 原文控制的用户。
-
-> 当前发布版本：**0.9.0** · Windows x64 · 主程序约 **5.51 MB**
-
-## 功能一览
-
-- **源码与预览**：在同一页面切换 Markdown 源码或可编辑预览，不使用并排分栏。
-- **常见 Markdown**：支持标题、文本格式、引用、列表、任务列表、表格、链接、图片和代码块，并支持数学公式、Mermaid 图表、脚注及 GitHub 风格提示块。
-- **文档导航**：自动生成六级标题目录，点击即可跳转；支持搜索、替换、撤销和重做。
-- **多标签编辑**：同时打开多份本地文档，各标签保留自己的编辑状态和滚动位置。
-- **桌面便签**：创建多个便签窗口，支持置顶、调整窗口大小和颜色、自动保存，以及关键词持续高亮。
-- **本地文件保护**：不持续锁定文件；检测到外部修改时询问是否重新加载。已有文件的修改不会被自动保存或自动覆盖。
-- **阅读设置**：支持字号调整，以及不换行、按窗口换行和按 A4 页面宽度换行。
-- **离线使用**：文档在本机读写，不需要登录或远程服务。公式字体和图表资源随应用提供。
-
 ## 下载
 
-当前程序为 Windows x64 的独立 EXE，约 5.51 MB，无需安装 Rust 或 Node.js。程序使用系统 WebView2；通常 Windows 10 / 11 已提供该运行环境。
+目前发布的是 Windows x64 版本。到 [Releases 下载最新版本](https://github.com/ahai1992/moye/releases/latest)，下载 `moye.exe` 后双击运行或关联MD文件。0.9.0 主程序约 5.51 MB；运行时使用系统 WebView2。
 
-本项目尚未发布 GitHub Release。维护者发布版本后，可在本仓库的 **Releases** 页面下载 `moye.exe`。文件关联、外部修改检查和系统对话框等功能目前只在 Windows 版本中实现或验证；其他平台尚未验证。
+## 我想把这些事做好
 
-详细操作说明见[中文使用说明](release/使用说明.md)。
+- **在一个编辑区里写作**：可以切换 Markdown 源码和可编辑预览，不必在两个分栏之间找位置。
+- **尽量保留文档原样**：没有编辑过的内容会保留原始 Markdown；已有文件需要我手动保存，程序不会自动覆盖它。
+- **放心地打开本地文件**：墨页不会一直占着文件句柄。其他软件修改文档后，我可以选择重新加载，或保留当前内容继续处理。
+- **同时处理几份文档**：可以用多个标签打开文件；每个标签保留自己的编辑状态和滚动位置。
+- **快速找到要改的内容**：左侧目录根据标题生成，搜索和替换也可以直接从编辑器中调用。
+- **按自己的习惯阅读**：可以调节字号，选择不换行、按窗口宽度换行或按 A4 页面宽度换行。
+- **把便签留在桌面**：可以创建多张独立便签、调整颜色和窗口大小、设置置顶。选中关键词后，便签会把所有相同文字持续显示为红底白字。
 
-开发环境、构建和检查命令见[开发说明](docs/development.md)。
+墨页支持常见 Markdown 格式，也支持表格、任务列表、代码高亮、数学公式、Mermaid 图表、脚注和 GitHub 风格提示块。更完整的操作说明见[中文使用说明](release/使用说明.md)。
 
-## 从源码构建
+## 从源码运行
 
-需要 Node.js 22.12 或更新版本、Rust stable / Cargo，以及 Tauri 所需的系统构建工具。Windows 构建需要 MSVC C++ Build Tools、Windows SDK 和 WebView2。
+使用 Tauri 2、Rust 和 TypeScript 开发墨页。构建需要 Node.js 22.12 或更新版本、Rust stable / Cargo，以及目标平台的 Tauri 构建工具。Windows 还需要 MSVC C++ Build Tools 和 Windows SDK。
 
 ```powershell
 npm install
+npm run dev
+```
+
+编译 Windows EXE（不生成安装包）：
+
+```powershell
 npm run desktop:build -- --no-bundle
 ```
 
-Windows EXE 输出到 `src-tauri/target/release/moye.exe`。仓库忽略本地构建 EXE 和打包产物；发布二进制建议通过 GitHub Releases 提供。
+构建结果位于 `src-tauri/target/release/moye.exe`。我把发布程序放在 GitHub Releases，源码仓库不包含 EXE 和安装包。
 
-## 技术栈
+## 平台与许可证
 
-- [Tauri 2](https://v2.tauri.app/) 与 Rust：桌面窗口、本地文件访问和平台集成。
-- TypeScript、Vite：界面和前端构建。
-- CodeMirror、Marked、KaTeX、Mermaid：源码编辑、Markdown 渲染、数学公式和图表。
+目前发布和验证的是 Windows 版本；macOS 与 Linux 尚未验证。
 
-## 许可证
-
-本项目采用 [MIT License](LICENSE)。你可以使用、修改、分发本项目并用于商业用途；再分发时须保留版权声明和许可证文本。第三方依赖仍遵循各自的许可证。
+采用 [MIT License](LICENSE) 发布本项目。
