@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notes",
+  "description": "便签窗口仅允许通过窗口边缘拖动调整自身大小。",
+  "windows": ["note-*"],
+  "permissions": ["core:window:allow-start-resize-dragging"]
+}

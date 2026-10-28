@@ -1,0 +1,105 @@
+import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
+
+export const editingDocument = '# 编辑工具检查\n\n普通 **文本块**，支持复制和中文搜索。\n\n'
+  + '```js\n\tconst sample = "<你好>&";\n  console.log(sample);\n```\n\n'
+  + '> 引用第一行\n>\n> 引用第二行\n\n- [x] 已完成\n- [ ] 待处理\n\n'
+  + '| 名称 | 数量 |\n| --- | --- |\n| 测试 | 2 |\n\n'
+  + 'Alpha alpha alphabet 中文 中文。字面量 a.b 和 aXb。\n\n'
+  + Array.from({ length: 50 }, (_, i) => `第 ${i + 1} 段用于长文档定位。\n\n`).join('')
+  + '末尾查找目标。\n'
+
+export async function checkEditing(page, screenshots) {
+  const copyBlock = async (selector, expected) => {
+    const block = page.locator(`#preview ${selector}`).first()
+    await block.scrollIntoViewIfNeeded()
+    await block.hover(selector === 'blockquote' ? { position: { x: 2, y: 2 } } : {})
+    const copy = page.locator('.document-view:not([hidden]) .block-copy')
+    await copy.waitFor({ state: 'visible' })
+    const before = await page.locator('#preview-scroll').evaluate(element => element.scrollTop)
+    await copy.click()
+    await page.waitForFunction(() => document.querySelector('.document-view:not([hidden]) .block-copy')?.textContent === '已复制')
+    assert.equal(await page.locator('#preview-scroll').evaluate(element => element.scrollTop), before)
+    assert.equal(await page.locator('#preview button').count(), 0, '复制按钮必须位于编辑内容外')
+    await page.evaluate(() => {
+      const input = document.createElement('textarea')
+      input.id = 'clipboard-probe'
+      input.style.cssText = 'position:fixed;top:0;left:0;width:100px;height:30px;z-index:20'
+      document.body.append(input)
+      input.focus({ preventScroll: true })
+    })
+    await page.keyboard.press('Control+v')
+    assert.equal(await page.locator('#clipboard-probe').inputValue(), expected, '剪贴板必须包含当前块的实际文本')
+    await page.locator('#clipboard-probe').evaluate(element => element.remove())
+  }
+  await page.locator('[data-mode="preview"]').click()
+  await copyBlock('pre', '\tconst sample = "<你好>&";\n  console.log(sample);')
+  await copyBlock('p', '普通 文本块，支持复制和中文搜索。')
+  await copyBlock('blockquote', '引用第一行\n\n引用第二行')
+  await copyBlock('ul > li', '- [x] 已完成')
+  await copyBlock('table', '名称\t数量\n测试\t2')
+  await page.locator('#preview pre').hover()
+  await page.screenshot({ path: resolve(screenshots, 'block-copy.png') })
+
+  await page.keyboard.press('Control+f')
+  const dialog = page.locator('dialog.find-dialog')
+  await dialog.waitFor({ state: 'visible' })
+  assert.equal(await dialog.getAttribute('aria-label'), '搜索')
+  assert.equal(await page.locator('[data-mode="source"]').getAttribute('aria-pressed'), 'true')
+  const find = dialog.getByRole('textbox', { name: '查找内容', exact: true })
+  const status = dialog.locator('.find-status')
+  await find.fill('末尾查找目标')
+  await page.waitForFunction(() => document.querySelector('.find-status')?.textContent === '第 1 / 1 处')
+  await page.waitForTimeout(120)
+  assert.ok(await page.locator('#source .cm-scroller').evaluate(element => element.scrollTop > 1000))
+  assert.equal(await page.locator('#source .cm-searchMatch-selected').textContent(), '末尾查找目标')
+  await find.fill('a.b')
+  await page.waitForFunction(() => document.querySelector('.find-status')?.textContent.endsWith('/ 1 处'))
+  await find.fill('不存在的内容')
+  await page.waitForFunction(() => document.querySelector('.find-status')?.textContent === '未找到匹配内容')
+  assert.equal(await dialog.getByRole('button', { name: '下一处', exact: true }).isDisabled(), true)
+
+  await page.keyboard.press('Control+h')
+  assert.equal(await dialog.getAttribute('aria-label'), '搜索和替换')
+  await find.fill('alpha')
+  await page.waitForFunction(() => document.querySelector('.find-status')?.textContent.endsWith('/ 3 处'))
+  await dialog.getByLabel('区分大小写', { exact: true }).check()
+  await page.waitForFunction(() => document.querySelector('.find-status')?.textContent.endsWith('/ 2 处'))
+  await dialog.getByLabel('全词匹配', { exact: true }).check()
+  await page.waitForFunction(() => document.querySelector('.find-status')?.textContent.endsWith('/ 1 处'))
+  await dialog.getByRole('textbox', { name: '替换为', exact: true }).fill('BETA')
+  await dialog.getByRole('button', { name: '替换当前', exact: true }).click()
+  assert.ok((await status.textContent()).includes('已替换 1 处'))
+  assert.ok((await page.locator('#source .cm-content').innerText()).includes('Alpha BETA alphabet'))
+  await page.keyboard.press('Escape')
+  await dialog.waitFor({ state: 'detached' })
+  await page.keyboard.press('Control+z')
+
+  await page.keyboard.press('Control+h')
+  await dialog.getByLabel('全词匹配', { exact: true }).uncheck()
+  await find.fill('中')
+  await page.waitForFunction(() => document.querySelector('.find-status')?.textContent.endsWith('/ 3 处'))
+  await find.dispatchEvent('compositionstart')
+  await page.keyboard.insertText('文')
+  assert.equal(await find.inputValue(), '中文', '搜索更新不能选中或覆盖正在输入的关键词')
+  await page.waitForTimeout(200)
+  assert.equal(await page.locator('#source .cm-searchMatch-selected').textContent(), '中', '输入法组合期间不应更新搜索或干扰输入选区')
+  await find.dispatchEvent('compositionend')
+  await page.waitForFunction(() => document.querySelector('.cm-searchMatch-selected')?.textContent === '中文')
+  await page.waitForFunction(() => document.querySelector('.find-status')?.textContent.endsWith('/ 3 处'))
+  const matchBefore = await status.textContent()
+  await dialog.getByRole('button', { name: '下一处', exact: true }).click()
+  assert.notEqual(await status.textContent(), matchBefore)
+  await dialog.getByRole('button', { name: '上一处', exact: true }).click()
+  assert.equal(await status.textContent(), matchBefore)
+  await dialog.getByRole('textbox', { name: '替换为', exact: true }).fill('$&新内容')
+  await dialog.getByRole('button', { name: '全部替换', exact: true }).click()
+  assert.ok((await status.textContent()).includes('已替换 3 处'))
+  assert.ok((await page.locator('#source .cm-content').innerText()).includes('$&新内容'))
+  await page.screenshot({ path: resolve(screenshots, 'find-replace.png') })
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+z')
+  await page.locator('[data-mode="preview"]').click()
+  assert.ok(!(await page.locator('#preview').innerText()).includes('BETA'))
+  assert.ok(!(await page.locator('#preview').innerText()).includes('$&新内容'))
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "本地窗口仅订阅文件打开和关闭事件；文件访问由受控 Rust 命令处理。",
+  "windows": ["main", "note-*"],
+  "permissions": ["core:event:default"]
+}
