@@ -1,18 +1,33 @@
 .window-colors-dialog label { display: flex; justify-content: space-between; align-items: center; margin: 14px 0; gap: 16px; white-space: nowrap; }
 .window-colors-dialog input[type="color"] { width: 110px; height: 36px; padding: 3px; cursor: pointer; }
+.paper-colors { min-width: 0; margin: 0 0 16px; padding: 0; border: 0; }
+.paper-colors legend { margin-bottom: 8px; padding: 0; font-size: 12px; white-space: nowrap; }
+.paper-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.paper-presets .paper-preset { display: flex; justify-content: space-between; gap: 4px; min-width: 0; min-height: 43px; padding: 8px 10px; border: 1px solid #0002; border-radius: 4px; white-space: nowrap; }
+.paper-presets .paper-preset, .custom-colors .paper-presets .paper-preset { background-color: var(--preset-paper) !important; color: var(--preset-ink) !important; border-color: color-mix(in srgb, var(--preset-ink) 25%, var(--preset-paper)) !important; }
+.paper-presets .paper-preset span, .custom-colors .paper-presets .paper-preset span { color: var(--preset-ink) !important; }
+.paper-preset .preset-check { visibility: hidden; }
+.paper-preset[aria-pressed="true"] .preset-check { visibility: visible; }
+.paper-preset[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--preset-ink); }
+.paper-presets .paper-preset:hover { box-shadow: inset 0 0 0 1px var(--preset-ink); }
+@media (max-width: 420px) { .paper-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 html.custom-colors, .custom-colors body { background: var(--window-bg); color: var(--window-ink); }
 .custom-colors body * { color: var(--window-ink) !important; border-color: var(--line) !important; caret-color: var(--window-ink) !important; }
 .custom-colors :is(#app, .format-toolbar, .toolbar-group, .editor-area, #workspace, #outline, .outline-title,
   .tab-bar, .tab-item, .tab-item.active, .statusbar, .writing-scroll, .writing-page, .writing-page pre, .writing-page code,
   .writing-page th, .writing-page td, .writing-page blockquote, .dialog, .dialog input, .dialog textarea, .block-actions button,
-  #toast, .find-dialog, .cm-editor, .cm-scroller, .cm-content, .cm-gutters, .cm-panels, .cm-tooltip, .cm-tooltip-autocomplete,
-  button, button:hover, select, select option, input, textarea) { background-color: var(--window-bg) !important; }
-.custom-colors :is(button:hover, .tab-item.active, #outline-list button[aria-current], .cm-activeLine, .cm-activeLineGutter,
+  #toast, .find-dialog, .cm-editor, .cm-scroller, .cm-gutters, .cm-panels, .cm-tooltip, .cm-tooltip-autocomplete,
+  button, button:hover, select, select option, input, textarea):not(.paper-preset) { background-color: var(--window-bg) !important; }
+.custom-colors :is(button:hover, .tab-item.active, #outline-list button[aria-current], .cm-activeLineGutter,
   .mode-switch button[aria-pressed="true"], .wrap-switch button[aria-pressed="true"], .find-modes button[aria-pressed="true"],
-  #outline-toggle[aria-expanded="true"]) { background-color: color-mix(in srgb, var(--window-ink) 10%, var(--window-bg)) !important; }
+  #outline-toggle[aria-expanded="true"]):not(.paper-preset) { background-color: color-mix(in srgb, var(--window-ink) 10%, var(--window-bg)) !important; }
 .custom-colors .cm-cursor { border-left-color: var(--window-ink) !important; }
-.custom-colors :is(.cm-selectionBackground, .cm-focused .cm-selectionBackground, .cm-searchMatch) { background-color: color-mix(in srgb, var(--window-ink) 24%, var(--window-bg)) !important; }
-.custom-colors .cm-searchMatch-selected { background-color: color-mix(in srgb, var(--window-ink) 38%, var(--window-bg)) !important; }
+/* CodeMirror 将选区画在正文下层，正文及行背景必须允许该层透出。 */
+.custom-colors .cm-content { background-color: transparent !important; }
+.custom-colors .cm-activeLine { background-color: color-mix(in srgb, var(--window-ink) 6%, transparent) !important; }
+.custom-colors :is(.cm-selectionBackground, .cm-focused .cm-selectionBackground) { background-color: color-mix(in srgb, var(--window-ink) 32%, var(--window-bg)) !important; }
+.custom-colors .cm-searchMatch { background-color: #4ade8073 !important; }
+.custom-colors .cm-searchMatch-selected { background-color: #22c55e99 !important; }
 .custom-colors ::selection { background: color-mix(in srgb, var(--window-ink) 25%, var(--window-bg)); color: var(--window-ink); }
 .custom-colors .writing-page li::marker { color: var(--window-ink); }
 .custom-colors .block-widget svg text, .custom-colors .block-widget svg text tspan { fill: var(--window-ink) !important; }

@@ -44,7 +44,7 @@ export class ReadingTools {
       }
     })
     document.addEventListener('wheel', event => {
-      if (!event.ctrlKey || document.querySelector('dialog[open]')) return
+      if (!event.ctrlKey || document.querySelector('dialog:modal')) return
       event.preventDefault()
       if (!this.enabled() || !event.deltaY) return
       this.setFont(this.fontSize + (event.deltaY < 0 ? 1 : -1))

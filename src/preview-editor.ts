@@ -5,6 +5,7 @@ import { blockText } from './block-copy'
 import { blockRange, headingSelector, listItemContainer } from './block-range'
 import type { MarkdownBlock } from './markdown'
 import { BlockHistory } from './block-history'
+import { plainTextClipboard } from './plain-clipboard'
 
 interface OriginalBlock { raw: string; html: string; hidden: boolean }
 type EditFragment = (source: string, kind: string) => Promise<string | null>
@@ -39,6 +40,7 @@ export class PreviewEditor {
     element.setAttribute('role', 'textbox')
     element.setAttribute('aria-label', '可编辑预览')
     element.setAttribute('aria-multiline', 'true')
+    plainTextClipboard(element)
     element.addEventListener('compositionstart', () => { this.composing = true })
     element.addEventListener('compositionend', () => { this.composing = false; this.changed() })
     element.addEventListener('input', () => { if (!this.composing) this.changed() })

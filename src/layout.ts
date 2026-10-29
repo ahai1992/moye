@@ -50,10 +50,12 @@ export const layout = `
     <div class="toolbar-group utility-tools" role="group" aria-label="应用工具">
       ${tool('notes', '便签：新建或打开独立便签窗口', '便签', true)}
       ${tool('window-colors', '设置整个主窗口的背景色和文字颜色', '配色', true)}
+      ${tool('font-settings', '设置软件的文本字体和代码字体', '字体', true)}
       ${tool('associate', '关联 Markdown 文档到当前程序', '关联 MD', true)}
     </div>
     <div class="toolbar-group" role="group" aria-label="查找与替换">
       ${tool('search', '搜索 Ctrl+F', icon('search'))}${tool('replace', '替换 Ctrl+H', '替')}
+      ${tool('clear-highlights', '取消当前文档的搜索高亮', '取消高亮', true)}
     </div>
     <div class="mode-switch" role="group" aria-label="编辑模式">
       <button data-mode="preview" aria-pressed="true" title="可编辑预览 Ctrl+/">预览</button>

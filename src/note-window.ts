@@ -3,6 +3,10 @@ import { friendlyError, invoke, listen } from './desktop'
 import { cleanNoteHtml } from './note-content'
 import { highlightWords, migrateNoteHighlights, renderNoteHighlights, supportsNoteHighlights } from './note-highlights'
 import { confirmDeleteNote } from './note-delete-dialog'
+import { plainTextClipboard } from './plain-clipboard'
+import { restoreFontSettings } from './font-settings'
+
+restoreFontSettings()
 
 interface Note {
   id: string; content: string; background: string; foreground: string
@@ -27,6 +31,7 @@ document.querySelector('#note-app')!.innerHTML = `
 `
 const get = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 const input = get<HTMLDivElement>('note-content')
+plainTextClipboard(input)
 const paper = get<HTMLInputElement>('paper-color')
 const ink = get<HTMLInputElement>('text-color')
 const pin = get<HTMLButtonElement>('pin-note')

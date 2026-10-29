@@ -11,8 +11,10 @@ import { friendlyError, invoke, isDesktop, listen, type OpenedDocument } from '.
 import { openNotes } from './notes-manager'
 import { openWindowColors, restoreWindowColors } from './window-colors'
 import { openFileAssociation } from './file-association'
+import { openFontSettings, restoreFontSettings } from './font-settings'
 
 restoreWindowColors()
+restoreFontSettings()
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = layout
 const get = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 const tabs: DocumentTab[] = []
@@ -32,7 +34,7 @@ try {
 } catch (error) { console.error('Wrap preference could not be read:', error) }
 
 const current = () => tabs.find(tab => tab.id === activeId)!
-const readingTools = new ReadingTools(current, () => !busy && !document.querySelector('dialog[open]'))
+const readingTools = new ReadingTools(current, () => !busy && !document.querySelector('dialog:modal'))
 
 function toast(message: string) {
   clearTimeout(toastTimer)
@@ -233,7 +235,7 @@ function setBusy(value: boolean) {
 }
 
 async function task(action: () => Promise<void>) {
-  if (busy || document.querySelector('dialog[open]')) return
+  if (busy || document.querySelector('dialog:modal')) return
   setBusy(true)
   drafts.suspend(true)
   try {
@@ -265,7 +267,7 @@ async function checkActiveFile(force = false) {
 
 function requestFileCheck() {
   if (busy) { checkRequested = true; return }
-  if (!document.querySelector('dialog[open]')) void task(() => checkActiveFile())
+  if (!document.querySelector('dialog:modal')) void task(() => checkActiveFile())
 }
 
 async function openPending() {
@@ -296,10 +298,11 @@ const snippets: Record<string, [string, string, string]> = {
 const commands: Record<string, string> = { bold: 'bold', italic: 'italic', strike: 'strikeThrough', list: 'insertUnorderedList', 'ordered-list': 'insertOrderedList' }
 
 function action(name: string) {
-  if (busy || !current() || document.querySelector('dialog[open]')) return
+  if (busy || !current() || document.querySelector('dialog:modal')) return
   const tab = current()
   if (name === 'notes') { void openNotes().catch(showError); return }
   if (name === 'window-colors') { openWindowColors(); return }
+  if (name === 'font-settings') { openFontSettings(); return }
   if (name === 'associate') { openFileAssociation(); return }
   const snippet = snippets[name]
   if (snippet) {
@@ -314,7 +317,14 @@ function action(name: string) {
     else tab.preview.command(name)
     return
   }
-  if (name === 'search' || name === 'replace') { tab.setMode('source'); updateStatus(); tab.source.search(name === 'replace'); return }
+  if (name === 'search' || name === 'replace') {
+    const selectedText = tab.selectedText()
+    tab.setMode('source')
+    updateStatus()
+    tab.source.search(name === 'replace', selectedText)
+    return
+  }
+  if (name === 'clear-highlights') { tab.source.clearSearchHighlights(); return }
   if (name === 'link') { void insertLink().catch(showError); return }
   void task(async () => {
     switch (name) {
@@ -378,16 +388,16 @@ document.addEventListener('keydown', event => {
   if (event.isComposing || busy || !current() || !(event.ctrlKey || event.metaKey)) return
   const key = event.key.toLowerCase()
   if (key !== 'f' && key !== 'h') return
-  const dialog = document.querySelector('dialog[open]')
-  if (dialog && !dialog.classList.contains('find-dialog')) return
+  if (document.querySelector('dialog:modal')) return
   event.preventDefault()
   event.stopPropagation()
-  if (dialog) current().source.search(key === 'h')
-  else action(key === 'h' ? 'replace' : 'search')
+  action(key === 'h' ? 'replace' : 'search')
 }, true)
 
 document.addEventListener('keydown', event => {
-  if (event.isComposing || busy || !current() || document.querySelector('dialog[open]')) return
+  if (event.isComposing || busy || !current() || document.querySelector('dialog:modal')) return
+  if (event.key === 'Escape') { current().source.closeSearch(); return }
+  if ((event.target as HTMLElement).closest('.find-dialog')) return
   const tabNavigation = (event.target as HTMLElement).matches('[role="tab"]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)
   const key = event.key.toLowerCase()
   if (tabNavigation || (event.ctrlKey && key === 'tab')) {
@@ -417,7 +427,7 @@ async function start() {
   try {
     try {
       const restored = await invoke<{ activeId: string; tabs: { document: OpenedDocument; view: ViewState }[]; warnings: string[] }>('load_workspace')
-      for (const tab of restored.tabs) addTab(tab.document, tab.view, true, false)
+      for (const tab of restored.tabs) addTab(tab.document, { ...tab.view, mode: 'preview' }, true, false)
       const initial = tabs.find(tab => tab.id === restored.activeId) ?? tabs[0]
       if (initial) selectTab(initial.id)
       drafts.ready = true

@@ -3,6 +3,7 @@ mod logging;
 mod workspace;
 mod notes;
 mod association;
+mod fonts;
 
 use document::{DocumentState, is_markdown, report};
 use std::path::{Path, PathBuf};
@@ -103,6 +104,7 @@ pub fn run() {
             notes::note_drag,
             notes::note_flush_done,
             association::register_file_association,
+            fonts::installed_fonts,
         ])
         .build(tauri::generate_context!())
         .expect("墨页启动失败");

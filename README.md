@@ -8,7 +8,7 @@
 
 ## 下载
 
-目前发布的是 Windows x64 版本。到 [Releases 下载最新版本](https://github.com/ahai1992/moye/releases/latest)，下载 `moye.exe` 后双击运行或关联MD文件。0.9.0 主程序约 5.51 MB；运行时使用系统 WebView2。
+目前发布的是 Windows x64 版本。到 [Releases 下载最新版本](https://github.com/ahai1992/moye/releases/latest)，下载 `moye.exe` 后双击运行或关联MD文件。0.9.4 主程序约 5.54 MB；运行时使用系统 WebView2。
 
 ## 我想把这些事做好
 

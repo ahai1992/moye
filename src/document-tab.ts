@@ -4,6 +4,7 @@ import { PreviewEditor } from './preview-editor'
 import { editText } from './dialogs'
 import { headingText, markdownHeadings } from './markdown'
 import { BlockCopy } from './block-copy'
+import { PreviewSearchHighlights } from './search-highlights'
 
 export interface OutlineHeading { level: number; text: string; from?: number; element?: HTMLElement }
 
@@ -30,6 +31,7 @@ export class DocumentTab {
   readonly previewScroll = document.createElement('div')
   readonly previewHost = document.createElement('article')
   readonly sourceHost = document.createElement('div')
+  private searchHighlights = new PreviewSearchHighlights(this.previewHost)
   private editors?: { source: SourceEditor; preview: PreviewEditor }
   private copy?: BlockCopy
   private active = false
@@ -61,10 +63,21 @@ export class DocumentTab {
   get source() { return this.editors!.source }
   get preview() { return this.editors!.preview }
 
+  selectedText() {
+    if (this.view.mode === 'source') {
+      if (!this.source.view.hasFocus) return ''
+      const { from, to } = this.source.view.state.selection.main
+      return this.source.view.state.sliceDoc(from, to)
+    }
+    const selection = window.getSelection()
+    return selection && this.previewHost.contains(selection.anchorNode) && this.previewHost.contains(selection.focusNode)
+      ? selection.toString() : ''
+  }
+
   private ensureEditors() {
     if (this.editors) return
     const changed = (content: string) => { this.content = content; this.onChange(this) }
-    const source = new SourceEditor(this.sourceHost, changed, this.content, this.view.wrap)
+    const source = new SourceEditor(this.sourceHost, changed, this.content, this.view.wrap, query => this.searchHighlights.setQuery(query))
     const preview = new PreviewEditor(this.previewHost, changed, (value, kind) => {
       if (kind === 'chapter') {
         return editText('替换当前章节', '包含当前标题及下级内容，至下一个同级或更高级标题之前。Ctrl+Enter 应用修改。', value, 'block')
@@ -98,9 +111,11 @@ export class DocumentTab {
   }
 
   deactivate() {
+    this.editors?.source.closeSearch()
     this.flush()
     this.captureView()
     this.active = false
+    this.searchHighlights.setActive(false)
     this.root.hidden = true
     for (const element of [this.previewHost, this.previewScroll, this.sourceHost]) element.removeAttribute('id')
   }
@@ -108,6 +123,7 @@ export class DocumentTab {
   private showMode() {
     this.previewScroll.hidden = this.view.mode !== 'preview'
     this.sourceHost.hidden = this.view.mode !== 'source'
+    this.searchHighlights.setActive(this.active && this.view.mode === 'preview')
   }
 
   private restoreScroll() {
@@ -141,6 +157,7 @@ export class DocumentTab {
 
   setMode(mode: ViewState['mode']) {
     if (mode === this.view.mode) return
+    this.source.closeSearch()
     this.flush()
     this.captureView()
     if (mode === 'preview') this.preview.setValue(this.content)
@@ -227,6 +244,7 @@ export class DocumentTab {
     this.editors?.source.destroy()
     this.editors?.preview.destroy()
     this.copy?.destroy()
+    this.searchHighlights.destroy()
     this.root.remove()
   }
 }

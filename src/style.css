@@ -1,5 +1,5 @@
 :root {
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--app-text-font, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
   color: #293448;
   background: #ffffff;
   font-synthesis: none;
@@ -111,7 +111,8 @@ svg { width: 18px; height: 18px; flex-shrink: 0; }
 .writing-page img { display: inline-block; max-width: 100%; height: auto; border-radius: 5px; }
 .writing-page img:not([src]) { min-width: 120px; min-height: 36px; font-size: 12px; color: var(--muted); border: 1px dashed #d7dbe5; padding: 6px; }
 .writing-page pre { background: #f6f7fa; border: 1px solid #e9ebf1; padding: 10px 12px; border-radius: 4px; overflow-x: auto; font-size: .8667em; line-height: 1.6; white-space: pre; tab-size: 4; }
-.writing-page code { font-family: "Cascadia Code", Consolas, monospace; font-size: .86em; padding: 2px 5px; color: #6e548f; background: #f2eff8; border-radius: 3px; }
+.writing-page :is(pre, code) { font-family: var(--app-code-font, "Cascadia Code", Consolas, monospace); }
+.writing-page code { font-size: .86em; padding: 2px 5px; color: #6e548f; background: #f2eff8; border-radius: 3px; }
 .writing-page pre code { padding: 0; background: transparent; color: #394254; font-size: inherit; }
 .writing-page table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: .9333em; table-layout: fixed; }
 .writing-page th, .writing-page td { border: 1px solid #e3e6ee; padding: 6px 9px; overflow-wrap: anywhere; }
@@ -140,7 +141,15 @@ svg { width: 18px; height: 18px; flex-shrink: 0; }
 .dialog h2 { margin: 0 0 12px; font-size: 19px; }
 .dialog p { font-size: 13px; color: #7a8395; line-height: 1.75; margin: 0 0 22px; overflow-wrap: anywhere; }
 .dialog input, .dialog textarea { width: 100%; padding: 11px; border: 1px solid #dce0e9; border-radius: 6px; color: #293448; background: #fafbfe; }
-.dialog textarea { height: min(340px, 50vh); resize: vertical; font: 14px/1.7 "Cascadia Code", Consolas, monospace; }
+.dialog textarea { height: min(340px, 50vh); resize: vertical; font: 14px/1.7 var(--app-code-font, "Cascadia Code", Consolas, monospace); }
+.font-settings-dialog { max-height: calc(100dvh - 24px); overflow: auto; }
+.font-settings-dialog label { display: block; margin-bottom: 6px; font-size: 13px; white-space: nowrap; }
+.font-settings-dialog select { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 4px; color: inherit; background: var(--paper); }
+.font-loading { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; font-size: 12px; line-height: 1.6; }
+.font-loading button { min-height: 26px; padding: 2px 6px; }
+.font-sample { padding: 10px 0 16px; font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
+.font-settings-dialog .font-error { margin: 8px 0; }
+.font-settings-dialog .dialog-actions { flex-wrap: wrap; }
 .fragment-dialog { width: 620px; }
 .notes-dialog { width: 460px; }
 .notes-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; color: var(--muted); font-size: 13px; }
@@ -155,16 +164,19 @@ svg { width: 18px; height: 18px; flex-shrink: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .dialog-actions button:not(.primary) { border-color: #e5e7ed; }
 .cm-panels:has(.find-dialog) { border: 0 !important; }
-.find-dialog { position: fixed; inset: 76px 16px auto auto; margin: 0; width: 440px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 100px); overflow: auto; border-radius: 6px; padding: 14px; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; }
+.find-dialog { position: fixed; inset: 76px 16px auto auto; z-index: 15; margin: 0; width: 440px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 100px); overflow: auto; border-radius: 6px; padding: 14px; font-family: var(--app-text-font, "Segoe UI", "Microsoft YaHei", sans-serif); font-size: 13px; }
 .find-dialog::backdrop { background: transparent; }
-.find-header { display: flex; justify-content: space-between; align-items: center; }
+.find-header { display: flex; justify-content: space-between; align-items: center; cursor: grab; user-select: none; touch-action: none; }
+.find-header.dragging { cursor: grabbing; }
+.find-header button { cursor: pointer; }
 .find-header h2 { margin: 0; font-size: 16px; }
 .find-header button { min-height: 24px; height: 24px; padding: 0 6px; font-size: 20px; }
 .find-modes { display: flex; gap: 4px; margin: 8px 0; }
 .find-modes button { min-height: 26px; padding: 2px 12px; border-radius: 3px; }
 .find-modes button[aria-pressed="true"] { color: #5947b4; background: #ebe7fa; }
 .find-row { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 6px; align-items: center; margin: 8px 0; white-space: nowrap; }
-.find-row input { min-width: 0; padding: 6px 8px; border-radius: 3px; }
+.find-row input, .find-row textarea { min-width: 0; padding: 6px 8px; border-radius: 3px; }
+.find-row textarea { height: 32px; min-height: 32px; max-height: 110px; resize: vertical; font: inherit; line-height: 1.4; }
 .find-options { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0; }
 .find-options label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .find-options input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
@@ -172,8 +184,9 @@ svg { width: 18px; height: 18px; flex-shrink: 0; }
 .find-status { min-height: 24px; line-height: 1.6; color: #685b91; font-size: 12px; }
 .find-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .find-actions button { min-height: 28px; padding: 3px 9px; border: 1px solid #dce0e7; border-radius: 3px; }
-.cm-searchMatch { background: #fff0a8; }
-.cm-searchMatch-selected { background: #ffce65 !important; outline: 1px solid #b8892d; }
+.cm-searchMatch { background: #4ade8073 !important; }
+::highlight(document-search) { background-color: #a8ebba; color: #173c25; }
+.cm-searchMatch-selected { background: #22c55e99 !important; outline: 1px solid #248846; }
 @media (max-width: 760px) {
   .toolbar-spacer { display: none; }
   #mode-label { display: none; }
