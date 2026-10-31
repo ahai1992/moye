@@ -4,6 +4,7 @@ mod workspace;
 mod notes;
 mod association;
 mod fonts;
+mod text_encoding;
 
 use document::{DocumentState, is_markdown, report};
 use std::path::{Path, PathBuf};
@@ -59,6 +60,21 @@ pub fn run() {
         .manage(notes::NotesStore::default())
         .setup(|app| {
             logging::init(app.handle());
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                window.with_webview(|webview| {
+                    use windows_core::Interface;
+                    // 禁用 WebView2 的浏览器查找等快捷键，F3/Ctrl+F 由编辑器处理。
+                    let result = unsafe {
+                        (|| -> windows_core::Result<()> {
+                            let settings = webview.controller().CoreWebView2()?.Settings()?;
+                            settings.cast::<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3>()?
+                                .SetAreBrowserAcceleratorKeysEnabled(false)
+                        })()
+                    };
+                    if let Err(error) = result { logging::error("disable browser shortcuts", error); }
+                })?;
+            }
             match std::env::current_dir() {
                 Ok(cwd) => {
                     for path in file_arguments(std::env::args().skip(1), &cwd) { queue_file(app.handle(), path); }
@@ -82,6 +98,7 @@ pub fn run() {
             document::close_document,
             document::check_document,
             document::reload_document,
+            document::reveal_document,
             workspace::load_workspace,
             workspace::save_workspace,
             document::save_document,

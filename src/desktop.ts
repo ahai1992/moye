@@ -4,6 +4,7 @@ export interface OpenedDocument {
   name: string
   content: string
   lineEnding: string
+  encoding?: string
 }
 
 export const isDesktop = Boolean(window.__TAURI__)

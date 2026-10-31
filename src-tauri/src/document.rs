@@ -32,6 +32,7 @@ pub struct CurrentDocument {
     original_bytes: Vec<u8>,
     crlf: bool,
     bom: bool,
+    pub encoding: String,
 }
 
 #[derive(Default)]
@@ -51,6 +52,7 @@ pub struct OpenedDocument {
     pub name: String,
     pub content: String,
     pub line_ending: &'static str,
+    pub encoding: String,
 }
 
 #[derive(Serialize)]
@@ -84,6 +86,7 @@ fn response(id: &str, current: &CurrentDocument, content: String) -> OpenedDocum
         name: current.path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
         content,
         line_ending: if current.crlf { "CRLF" } else { "LF" },
+        encoding: current.encoding.clone(),
     }
 }
 
@@ -99,10 +102,14 @@ pub(crate) fn create_document(session: &mut Session, id: &str, name: String) -> 
     if session.documents.contains_key(id) { return Err("文档已经打开，请切换到对应标签。".into()); }
     if session.documents.len() >= 128 { return Err("打开的文档较多，请先关闭部分标签。".into()); }
     session.documents.insert(id.into(), Document { name: name.clone(), ..Default::default() });
-    Ok(OpenedDocument { id: id.into(), path: None, name, content: String::new(), line_ending: "LF" })
+    Ok(OpenedDocument { id: id.into(), path: None, name, content: String::new(), line_ending: "LF", encoding: "UTF-8".into() })
 }
 
 pub(crate) fn open_path(session: &mut Session, id: &str, path: &Path, reload: bool) -> Result<OpenedDocument, String> {
+    open_path_encoding(session, id, path, reload, None)
+}
+
+pub(crate) fn open_path_encoding(session: &mut Session, id: &str, path: &Path, reload: bool, encoding: Option<&str>) -> Result<OpenedDocument, String> {
     validate_id(id)?;
     if !is_markdown(path) { return Err("请选择 .md、.markdown、.mdown 或 .mkd 文档。".into()); }
     let path = path.canonicalize().map_err(|error| report("resolve document", error, "文档未找到，请确认文件没有被移动或删除。"))?;
@@ -116,12 +123,11 @@ pub(crate) fn open_path(session: &mut Session, id: &str, path: &Path, reload: bo
         if session.documents.len() >= 128 { return Err("打开的文档较多，请先关闭部分标签。".into()); }
     }
     let bytes = bounded_read(&path, MAX_DOCUMENT_BYTES)?;
-    let bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
-    let text = std::str::from_utf8(if bom { &bytes[3..] } else { &bytes })
-        .map_err(|error| report("decode", error, "当前支持 UTF-8 文档，请转换文件编码后重新打开。"))?;
+    let (text, encoding, bom) = crate::text_encoding::decode(&bytes, encoding)
+        .map_err(|error| report("decode document", &error, &error))?;
     let crlf = text.contains("\r\n");
     let content = text.replace("\r\n", "\n");
-    let current = CurrentDocument { path, original_bytes: bytes, crlf, bom };
+    let current = CurrentDocument { path, original_bytes: bytes, crlf, bom, encoding };
     let result = response(id, &current, content);
     let revision = session.documents.get(id).map_or(0, |doc| doc.revision + 1);
     session.documents.insert(id.into(), Document { current: Some(current), name: result.name.clone(), revision });
@@ -196,7 +202,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], expected: Option<&[u8]>) -
 }
 
 #[tauri::command]
-pub async fn save_document(app: AppHandle, document_id: String, content: String, save_as: bool) -> Result<Option<OpenedDocument>, String> {
+pub async fn save_document(app: AppHandle, document_id: String, content: String, save_as: bool, encoding: Option<String>) -> Result<Option<OpenedDocument>, String> {
     if content.len() as u64 > MAX_DOCUMENT_BYTES { return Err("文档超过 16 MB，请减少嵌入图片或拆分文档后保存。".into()); }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DocumentState>();
@@ -226,17 +232,17 @@ pub async fn save_document(app: AppHandle, document_id: String, content: String,
             return Err("此文件已在另一个标签中打开，请切换到对应标签或选择其他保存位置。".into());
         }
         let crlf = current.is_some_and(|doc| doc.crlf);
-        let bom = current.is_some_and(|doc| doc.bom);
+        let bom = encoding.as_ref().map_or_else(|| current.is_some_and(|doc| doc.bom), |name| matches!(name.as_str(), "UTF-8 BOM" | "UTF-16LE" | "UTF-16BE"));
+        let encoding = encoding.unwrap_or_else(|| current.map_or_else(|| "UTF-8".into(), |doc| doc.encoding.clone()));
         let normalized = content.replace("\r\n", "\n");
         let disk_text = if crlf { normalized.replace('\n', "\r\n") } else { normalized.clone() };
-        let mut bytes = Vec::with_capacity(disk_text.len() + 3);
-        if bom { bytes.extend_from_slice(&[0xef, 0xbb, 0xbf]); }
-        bytes.extend_from_slice(disk_text.as_bytes());
+        let bytes = crate::text_encoding::encode(&disk_text, &encoding, bom)
+            .map_err(|error| report("encode document", &error, &error))?;
         if bytes.len() as u64 > MAX_DOCUMENT_BYTES { return Err("文档保存后超过 16 MB，请拆分文档后保存。".into()); }
         let expected = current.filter(|doc| doc.path == path).map(|doc| doc.original_bytes.as_slice());
         write_atomic(&path, &bytes, expected)?;
         let path = path.canonicalize().map_err(|error| report("resolve saved file", error, "文档已写入，但保存位置无法确认，请重新打开文档。"))?;
-        let current = CurrentDocument { path, original_bytes: bytes, crlf, bom };
+        let current = CurrentDocument { path, original_bytes: bytes, crlf, bom, encoding };
         let result = response(&document_id, &current, normalized);
         session.documents.insert(document_id, Document { current: Some(current), name: result.name.clone(), revision: revision + 1 });
         Ok(Some(result))
@@ -261,13 +267,41 @@ pub async fn check_document(app: AppHandle, document_id: String) -> Result<&'sta
 }
 
 #[tauri::command]
-pub async fn reload_document(app: AppHandle, document_id: String) -> Result<OpenedDocument, String> {
+pub async fn reload_document(app: AppHandle, document_id: String, encoding: Option<String>) -> Result<OpenedDocument, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DocumentState>();
         let mut session = state.lock()?;
-        let path = session.documents.get(&document_id).and_then(|doc| doc.current.as_ref()).map(|doc| doc.path.clone()).ok_or("文档尚未保存为文件。")?;
-        open_path(&mut session, &document_id, &path, true)
+        let current = session.documents.get(&document_id).and_then(|doc| doc.current.as_ref()).ok_or("文档尚未保存为文件。")?;
+        let path = current.path.clone();
+        let encoding = encoding.unwrap_or_else(|| current.encoding.clone());
+        open_path_encoding(&mut session, &document_id, &path, true, Some(&encoding))
     }).await.map_err(|error| report("reload task", error, "重新加载失败，当前内容已保留。"))?
+}
+
+#[tauri::command]
+pub async fn reveal_document(app: AppHandle, document_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = app.state::<DocumentState>().lock()?.documents.get(&document_id)
+            .and_then(|doc| doc.current.as_ref()).map(|doc| doc.path.clone()).ok_or("请先将文档保存为本地文件。")?;
+        if !path.exists() { return Err("文件已移动或删除，无法定位。".into()); }
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            let path = path.to_string_lossy();
+            let path = if let Some(network) = path.strip_prefix(r"\\?\UNC\") { format!(r"\\{network}") }
+                else { path.strip_prefix(r"\\?\").unwrap_or(&path).to_owned() };
+            std::process::Command::new("explorer.exe").creation_flags(0x08000000)
+                .arg(format!("/select,{path}")).spawn()
+                .map_err(|error| report("reveal file", error, "资源管理器无法打开，请重试。"))?;
+        }
+        #[cfg(target_os = "macos")]
+        std::process::Command::new("open").arg("-R").arg(&path).spawn()
+            .map_err(|error| report("reveal file", error, "文件管理器无法打开，请重试。"))?;
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        std::process::Command::new("xdg-open").arg(path.parent().ok_or("文件位置无效。")?).spawn()
+            .map_err(|error| report("reveal file", error, "文件管理器无法打开，请重试。"))?;
+        Ok(())
+    }).await.map_err(|error| report("reveal task", error, "打开文件位置失败，请重试。"))?
 }
 
 fn image_data(path: &Path) -> Result<String, String> {
@@ -327,12 +361,12 @@ mod tests {
     }
 
     #[test]
-    fn reject_non_markdown_and_invalid_utf8() {
+    fn reject_non_markdown_and_explicit_invalid_utf8() {
         let folder = tempfile::tempdir().unwrap();
         let path = folder.path().join("invalid.md");
         fs::write(&path, [0xff, 0xff]).unwrap();
         let mut session = Session::default();
-        assert!(open_path(&mut session, "invalid", &path, false).is_err());
+        assert!(open_path_encoding(&mut session, "invalid", &path, false, Some("UTF-8")).is_err());
         assert!(!is_markdown(Path::new("secret.env")));
         assert!(is_markdown(Path::new("notes.MD")));
     }

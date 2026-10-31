@@ -44,6 +44,8 @@ struct StoredTab {
     path: Option<PathBuf>,
     content: Option<String>,
     view: ViewState,
+    #[serde(default)]
+    encoding: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -95,7 +97,8 @@ fn snapshot(session: &Session, active_id: String, tabs: Vec<SnapshotTab>) -> Res
         if size > MAX_DOCUMENT_BYTES { return Err("临时文档超过 16 MB，请减少嵌入图片或拆分后保存。".into()); }
         total += size;
         if total > MAX_WORKSPACE_BYTES { return Err("临时文档总量过大，请先将部分文档保存为文件。".into()); }
-        stored.push(StoredTab { id: tab.id, name: document.name.clone(), path, content: tab.content, view: tab.view });
+        let encoding = document.current.as_ref().map(|doc| doc.encoding.clone());
+        stored.push(StoredTab { id: tab.id, name: document.name.clone(), path, content: tab.content, view: tab.view, encoding });
     }
     if !stored.is_empty() && !seen.contains(&active_id) { return Err("当前标签状态无效，请重试。".into()); }
     Ok(Snapshot { version: 1, active_id, tabs: stored })
@@ -125,7 +128,7 @@ fn restore(path: &Path, session: &mut Session) -> Result<RestoredWorkspace, Stri
     let mut warnings = Vec::new();
     for tab in snapshot.tabs {
         let document = if let Some(path) = tab.path {
-            match document::open_path(&mut restored, &tab.id, &path, false) {
+            match document::open_path_encoding(&mut restored, &tab.id, &path, false, tab.encoding.as_deref()) {
                 Ok(document) => document,
                 Err(_) => { warnings.push(format!("“{}”无法打开，请检查文件位置。", tab.name)); continue; }
             }

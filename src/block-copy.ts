@@ -29,7 +29,7 @@ export function blockText(element: HTMLElement): string {
   return read(element.tagName === 'LI' ? listItemContainer(element) : element).replace(/\n{3,}/g, '\n\n').trim()
 }
 
-async function writeClipboard(text: string) {
+export async function writeClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
     try { await navigator.clipboard.writeText(text); return }
     catch (error) { console.error('Clipboard write failed, trying selected text copy:', error) }
@@ -133,7 +133,7 @@ export class BlockCopy {
     this.actions.hidden = false
     const right = Math.min(block.right, viewport.left + this.scroller.clientWidth) - 5
     this.actions.style.left = `${Math.max(viewport.left + 4, right - this.actions.offsetWidth)}px`
-    this.actions.style.top = `${Math.min(viewport.bottom - 28, Math.max(viewport.top + 4, block.top + 3))}px`
+    this.actions.style.top = `${Math.max(0, Math.min(viewport.bottom - 28, Math.max(viewport.top, block.top) - this.actions.offsetHeight - 5))}px`
   }
 
   private async replace() {

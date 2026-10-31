@@ -3,8 +3,7 @@ import { EditorView, drawSelection, keymap, lineNumbers, highlightActiveLine } f
 import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import { defaultHighlightStyle, syntaxHighlighting, bracketMatching } from '@codemirror/language'
-import { getSearchQuery, openSearchPanel, search, SearchQuery, setSearchQuery } from '@codemirror/search'
-import { FindDialog } from './find-dialog'
+import { search, SearchQuery, setSearchQuery } from '@codemirror/search'
 import { persistentSearchHighlights } from './search-highlights'
 
 export type WrapMode = 'none' | 'window' | 'page'
@@ -22,10 +21,8 @@ export class SourceEditor {
   readonly view: EditorView
   private replacing = false
   private wrapping = new Compartment()
-  private findDialog?: FindDialog
-  private replaceMode = false
 
-  constructor(parent: HTMLElement, onChange: (value: string) => void, initialValue = '', wrapMode: WrapMode = 'window', onSearchChange?: (query: SearchQuery) => void) {
+  constructor(parent: HTMLElement, onChange: (value: string) => void, initialValue = '', wrapMode: WrapMode = 'window', onUpdate?: () => void) {
     this.view = new EditorView({
       parent,
       state: EditorState.create({
@@ -35,7 +32,6 @@ export class SourceEditor {
           markdown(), syntaxHighlighting(defaultHighlightStyle), persistentSearchHighlights,
           search({
             literal: true,
-            createPanel: view => this.findDialog = new FindDialog(view, this.replaceMode, () => { this.findDialog = undefined }),
             scrollToMatch: range => EditorView.scrollIntoView(range, { y: 'center' }),
           }),
           this.wrapping.of(wrappingExtensions(wrapMode)),
@@ -43,7 +39,7 @@ export class SourceEditor {
           EditorView.contentAttributes.of({ 'aria-label': 'Markdown 源码', spellcheck: 'false' }),
           EditorView.updateListener.of(update => {
             if (update.docChanged && !this.replacing) onChange(update.state.doc.toString())
-            if (!getSearchQuery(update.startState).eq(getSearchQuery(update.state))) onSearchChange?.(getSearchQuery(update.state))
+            if (update.docChanged || update.selectionSet || update.geometryChanged) onUpdate?.()
           }),
           EditorView.theme({
             '&': { height: '100%', fontSize: 'calc(var(--editor-font-size, 15px) - 1px)' },
@@ -94,19 +90,7 @@ export class SourceEditor {
   get scrollElement() { return this.view.scrollDOM }
   focus() { this.view.focus() }
   destroy() { this.view.destroy() }
-  closeSearch() { this.findDialog?.close() }
-  clearSearchHighlights() {
-    this.closeSearch()
-    this.view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: '' })) })
-  }
-  search(replace = false, selectedText = '') {
-    const previous = this.findDialog ? undefined : getSearchQuery(this.view.state).search
-    this.replaceMode = replace
-    if (this.findDialog) this.findDialog.setMode(replace)
-    else openSearchPanel(this.view)
-    const text = selectedText || previous
-    if (text !== undefined) this.findDialog?.setSearchText(text)
-  }
+  setSearch(query: SearchQuery) { this.view.dispatch({ effects: setSearchQuery.of(query) }) }
   undo() { undo(this.view) }
   redo() { redo(this.view) }
 

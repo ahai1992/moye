@@ -6,6 +6,7 @@ import { blockRange, headingSelector, listItemContainer } from './block-range'
 import type { MarkdownBlock } from './markdown'
 import { BlockHistory } from './block-history'
 import { plainTextClipboard } from './plain-clipboard'
+import { PreviewText } from './preview-text'
 
 interface OriginalBlock { raw: string; html: string; hidden: boolean }
 type EditFragment = (source: string, kind: string) => Promise<string | null>
@@ -94,6 +95,46 @@ export class PreviewEditor {
 
   getValue(): string {
     return this.serialize(this.element.childNodes)
+  }
+
+  sourceBlocks() {
+    const source = this.getValue()
+    const blocks: { element: HTMLElement; raw: string; from: number; to: number }[] = []
+    let cursor = 0
+    for (const node of this.element.childNodes) {
+      const raw = this.serialize([node])
+      if (!raw) continue
+      const from = source.indexOf(raw, cursor)
+      if (from < 0) continue
+      const element = node instanceof HTMLElement ? node : node.parentElement!
+      blocks.push({ element, raw, from, to: from + raw.length })
+      cursor = from + raw.length
+    }
+    return blocks
+  }
+
+  replaceText(changes: { from: number; to: number; insert: string }[]) {
+    const clone = this.element.cloneNode(true) as HTMLElement
+    const map = new PreviewText(clone)
+    for (const change of [...changes].reverse()) {
+      const range = map.range(change.from, change.to)
+      if (!range) continue
+      const parent = range.startContainer.parentElement
+      if (parent?.closest('[contenteditable="false"]') || range.endContainer.parentElement?.closest('[contenteditable="false"]') || range.cloneContents().querySelector('[contenteditable="false"]')) {
+        throw new Error('匹配内容包含公式、图表或其他独立内容，请双击相应内容修改。')
+      }
+      const fragment = document.createDocumentFragment()
+      if (parent?.closest('pre')) fragment.append(document.createTextNode(change.insert))
+      else change.insert.split('\n').forEach((line, index) => { if (index) fragment.append(document.createElement('br')); fragment.append(document.createTextNode(line)) })
+      range.deleteContents(); range.insertNode(fragment)
+    }
+    const fragment = document.createDocumentFragment()
+    fragment.append(...Array.from(clone.childNodes))
+    const range = document.createRange(); range.selectNodeContents(this.element)
+    this.blockHistory.replace(range, fragment, selection => {
+      this.selection = selection; this.selection.collapse(true)
+      this.prepare(this.element); this.flush(); void this.hydrate(this.revision)
+    })
   }
 
   private createBlock(block: MarkdownBlock): HTMLElement {

@@ -1,14 +1,23 @@
-import type { EditorView, Panel, ViewUpdate } from '@codemirror/view'
-import { closeSearchPanel, findNext, findPrevious, getSearchQuery, replaceAll, replaceNext, SearchQuery, setSearchQuery } from '@codemirror/search'
+import { SearchQuery } from '@codemirror/search'
+
+export interface SearchHost {
+  query: SearchQuery
+  setQuery(query: SearchQuery, navigate: boolean): void
+  status(): { total: number; selected: number }
+  next(previous?: boolean): void
+  replace(all: boolean): number
+  scope(): string
+}
 
 let floatingPosition: { left: number; top: number } | undefined
 
-export class FindDialog implements Panel {
+export class FindDialog {
   readonly dom = document.createElement('dialog')
   private find: HTMLTextAreaElement
-  private replacement: HTMLInputElement
+  private replacement: HTMLTextAreaElement
   private caseSensitive: HTMLInputElement
   private wholeWord: HTMLInputElement
+  private regexp: HTMLInputElement
   private timer?: ReturnType<typeof setTimeout>
   private total = 0
   private replacing = false
@@ -17,26 +26,29 @@ export class FindDialog implements Panel {
   private resizeObserver = new ResizeObserver(() => this.place())
   private resized = () => this.place()
 
-  constructor(private view: EditorView, replace: boolean, private onClose: () => void) {
+  constructor(private host: SearchHost, replace: boolean, private onClose: () => void, private onError: (error: unknown) => void) {
     this.dom.className = 'dialog find-dialog'
     this.dom.innerHTML = `
       <div class="find-header" title="拖动标题栏移动浮窗"><h2>搜索</h2><button type="button" data-find="close" title="关闭 Esc" aria-label="关闭搜索">×</button></div>
       <div class="find-modes" role="group" aria-label="搜索方式"><button type="button" data-find="search">搜索</button><button type="button" data-find="replace-mode">替换</button></div>
       <label class="find-row">查找<textarea rows="1" main-field="true" aria-label="查找内容" spellcheck="false"></textarea></label>
-      <label class="find-row" data-replace-row>替换为<input type="text" aria-label="替换为" spellcheck="false"></label>
-      <div class="find-options"><label><input type="checkbox" data-case>区分大小写</label><label><input type="checkbox" data-word>全词匹配</label></div>
-      <p class="find-scope">在当前文档的 Markdown 原文中查找</p>
+      <label class="find-row" data-replace-row>替换为<textarea rows="1" aria-label="替换为" spellcheck="false"></textarea></label>
+      <div class="find-options"><label><input type="checkbox" data-case>区分大小写</label><label><input type="checkbox" data-word>全词匹配</label><label><input type="checkbox" data-regexp>正则表达式</label></div>
+      <p class="find-scope"></p>
+      <p class="find-regexp-help" hidden>正则替换支持 $1、$2、$&amp; 和命名分组 $&lt;名称&gt;；\\n 换行，\\t 制表符。</p>
       <div class="find-status" role="status" aria-live="polite"></div>
       <div class="find-actions"><button type="button" data-find="previous">上一处</button><button type="button" data-find="next" class="primary">下一处</button><button type="button" data-find="replace">替换当前</button><button type="button" data-find="all">全部替换</button></div>`
     this.find = this.dom.querySelector('[main-field]')!
     this.replacement = this.dom.querySelector('[aria-label="替换为"]')!
     this.caseSensitive = this.dom.querySelector('[data-case]')!
     this.wholeWord = this.dom.querySelector('[data-word]')!
-    const query = getSearchQuery(view.state)
+    this.regexp = this.dom.querySelector('[data-regexp]')!
+    const query = host.query
     this.find.value = query.search
     this.replacement.value = query.replace
     this.caseSensitive.checked = query.caseSensitive
     this.wholeWord.checked = query.wholeWord
+    this.regexp.checked = query.regexp
     this.setMode(replace)
     const header = this.dom.querySelector<HTMLElement>('.find-header')!
     header.addEventListener('pointerdown', event => {
@@ -83,7 +95,7 @@ export class FindDialog implements Panel {
         this.close()
         return
       }
-      if (event.key === 'Enter' && (event.target instanceof HTMLInputElement || event.target === this.find)) {
+      if (event.key === 'Enter' && (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) {
         event.preventDefault()
         this.run(event.shiftKey ? 'previous' : 'next')
       }
@@ -91,6 +103,7 @@ export class FindDialog implements Panel {
   }
 
   mount() {
+    document.body.append(this.dom)
     this.dom.show()
     this.place(floatingPosition?.left, floatingPosition?.top)
     this.resizeObserver.observe(this.dom)
@@ -126,47 +139,29 @@ export class FindDialog implements Panel {
     if (this.dom.open) { this.find.focus(); this.find.select() }
   }
 
-  update(update: ViewUpdate) {
-    if (!getSearchQuery(update.startState).eq(getSearchQuery(update.state))) {
-      const query = getSearchQuery(update.state)
-      if (this.find.value !== query.search) { clearTimeout(this.timer); this.find.value = query.search }
-    }
-    if (update.docChanged || update.selectionSet || !getSearchQuery(update.startState).eq(getSearchQuery(update.state))) this.updateStatus()
-  }
+  update() { this.updateStatus() }
 
   close() {
     this.syncQuery(false)
-    closeSearchPanel(this.view)
+    this.destroy()
   }
 
   private syncQuery(select: boolean) {
     clearTimeout(this.timer)
     // 用户已回到正文时，延迟执行的搜索更新只能更新查询，不能重设其拖选范围。
     select = select && this.dom.contains(document.activeElement) && document.activeElement !== this.replacement
-    const query = new SearchQuery({ search: this.find.value, replace: this.replacement.value, caseSensitive: this.caseSensitive.checked, wholeWord: this.wholeWord.checked, literal: true })
-    if (!query.eq(getSearchQuery(this.view.state))) {
-      const inputSelection = [this.find.selectionStart, this.find.selectionEnd] as const
-      const selection = select ? { anchor: this.view.state.selection.main.from } : undefined
-      this.view.dispatch({ effects: setSearchQuery.of(query), selection })
-      if (select && query.valid) findNext(this.view)
-      if (document.activeElement === this.find) this.find.setSelectionRange(...inputSelection)
-    }
+    const query = new SearchQuery({ search: this.find.value, replace: this.replacement.value, caseSensitive: this.caseSensitive.checked, wholeWord: this.wholeWord.checked, regexp: this.regexp.checked, literal: true })
+    if (!query.eq(this.host.query)) this.host.setQuery(query, select)
     this.updateStatus()
   }
 
   private updateStatus(message?: string) {
-    const query = getSearchQuery(this.view.state)
-    const selection = this.view.state.selection.main
-    let selected = 0
-    this.total = 0
-    if (query.valid) {
-      const cursor = query.getCursor(this.view.state)
-      for (let match = cursor.next(); !match.done; match = cursor.next()) {
-        this.total++
-        if (match.value.from === selection.from && match.value.to === selection.to) selected = this.total
-      }
-    }
-    this.dom.querySelector('.find-status')!.textContent = message ?? (!query.valid ? '请输入要查找的内容' : !this.total ? '未找到匹配内容' : selected ? `第 ${selected} / ${this.total} 处` : `共 ${this.total} 处`)
+    const query = this.host.query
+    const { total, selected } = this.host.status()
+    this.total = total
+    this.dom.querySelector('.find-scope')!.textContent = this.host.scope()
+    this.dom.querySelector<HTMLElement>('.find-regexp-help')!.hidden = !query.regexp
+    this.dom.querySelector('.find-status')!.textContent = message ?? (!query.valid ? query.search && query.regexp ? '正则表达式无效，请检查括号或转义符。' : '请输入要查找的内容' : !this.total ? '未找到匹配内容' : selected ? `第 ${selected} / ${this.total} 处` : `共 ${this.total} 处`)
     for (const button of this.dom.querySelectorAll<HTMLButtonElement>('.find-actions button')) button.disabled = !this.total || this.replacing
   }
 
@@ -175,17 +170,14 @@ export class FindDialog implements Panel {
     this.syncQuery(false)
     if (!this.total) return
     if (action === 'next' || action === 'previous') {
-      ;(action === 'next' ? findNext : findPrevious)(this.view)
+      this.host.next(action === 'previous')
       return
     }
     this.replacing = true
     try {
-      const total = this.total
-      const before = this.view.state.doc
-      if (action === 'all') replaceAll(this.view)
-      else if (action === 'replace') { replaceNext(this.view); findNext(this.view) }
-      if (!this.view.state.doc.eq(before)) this.updateStatus(`已替换 ${action === 'all' ? total : 1} 处，可回到正文按 Ctrl+Z 撤销`)
-    } finally {
+      const count = this.host.replace(action === 'all')
+      if (count) this.updateStatus(`已替换 ${count} 处，可回到正文按 Ctrl+Z 撤销`)
+    } catch (error) { this.onError(error) } finally {
       this.replacing = false
       for (const button of this.dom.querySelectorAll<HTMLButtonElement>('.find-actions button')) button.disabled = !this.total
     }
@@ -196,6 +188,7 @@ export class FindDialog implements Panel {
     this.resizeObserver.disconnect()
     window.removeEventListener('resize', this.resized)
     this.dom.close()
+    this.dom.remove()
     this.onClose()
   }
 }

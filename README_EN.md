@@ -4,7 +4,7 @@
 
 ## Download
 
-The current release is for Windows x64. Visit [Releases to download the latest version](https://github.com/ahai1992/moye/releases/latest), then run `moye.exe` or associate `.md` files with Moye. Version 0.9.4 is approximately 5.54 MB and uses the system WebView2 runtime.
+The current release is for Windows x64. Visit [Releases to download the latest version](https://github.com/ahai1992/moye/releases/latest), then run `moye.exe` or associate `.md` files with Moye. Version 0.9.5 is approximately 5.74 MB and uses the system WebView2 runtime.
 
 ## What I Want to Get Right
 

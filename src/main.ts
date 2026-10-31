@@ -12,6 +12,8 @@ import { openNotes } from './notes-manager'
 import { openWindowColors, restoreWindowColors } from './window-colors'
 import { openFileAssociation } from './file-association'
 import { openFontSettings, restoreFontSettings } from './font-settings'
+import { chooseEncoding, installTabMenu } from './tab-menu'
+import { writeClipboard } from './block-copy'
 
 restoreWindowColors()
 restoreFontSettings()
@@ -125,7 +127,7 @@ function updateStatus() {
     : tab.draftContent === tab.content ? '已自动暂存' : '等待临时保存'
   get('word-count').textContent = `${tab.content.replace(/\s/g, '').length.toLocaleString()} 字`
   get('line-count').textContent = `${tab.content.split('\n').length.toLocaleString()} 行`
-  get('encoding').textContent = `UTF-8 · ${tab.lineEnding}`
+  get('encoding').textContent = `${tab.encoding} · ${tab.lineEnding}`
   get('mode-label').textContent = tab.view.mode === 'preview' ? '点击文字即可编辑' : 'Markdown 源码'
   document.querySelectorAll<HTMLButtonElement>('button[data-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mode === tab.view.mode)))
   document.querySelectorAll<HTMLButtonElement>('button[data-wrap]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.wrap === tab.view.wrap)))
@@ -172,10 +174,10 @@ async function newTab(content = '', name?: string) {
   drafts.schedule()
 }
 
-async function save(saveAs = false): Promise<boolean> {
+async function save(saveAs = false, encoding?: string): Promise<boolean> {
   const tab = current()
   const snapshot = tab.flush()
-  const result = await invoke<OpenedDocument | null>('save_document', { documentId: tab.id, content: snapshot, saveAs })
+  const result = await invoke<OpenedDocument | null>('save_document', { documentId: tab.id, content: snapshot, saveAs, encoding })
   if (!result) return false
   tab.markSaved(result)
   updateStatus()
@@ -319,12 +321,10 @@ function action(name: string) {
   }
   if (name === 'search' || name === 'replace') {
     const selectedText = tab.selectedText()
-    tab.setMode('source')
-    updateStatus()
-    tab.source.search(name === 'replace', selectedText)
+    tab.search.open(name === 'replace', selectedText)
     return
   }
-  if (name === 'clear-highlights') { tab.source.clearSearchHighlights(); return }
+  if (name === 'clear-highlights') { tab.search.clear(); return }
   if (name === 'link') { void insertLink().catch(showError); return }
   void task(async () => {
     switch (name) {
@@ -377,6 +377,29 @@ document.addEventListener('auxclick', event => {
   const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]')
   if (event.button === 1 && tab) { event.preventDefault(); void task(() => closeTab(tab.dataset.tab!)) }
 })
+installTabMenu(get('tab-strip'), () => !busy && !document.querySelector('dialog:modal'), id => Boolean(tabs.find(tab => tab.id === id)?.path), (id, action) => {
+  void task(async () => {
+    selectTab(id)
+    const tab = current()
+    if (action === 'save') { await save(); return }
+    if (action === 'copy-path') {
+      const path = tab.path!.replace(/^\\\\\?\\UNC\\/, '\\\\').replace(/^\\\\\?\\/, '')
+      await writeClipboard(path); toast('文件路径已复制'); return
+    }
+    if (action === 'reveal') { await invoke('reveal_document', { documentId: id }); return }
+    const encoding = action === 'reload' ? undefined : await chooseEncoding(tab.encoding, action === 'read-encoding')
+    if (encoding === null) return
+    if (action === 'save-encoding') { await save(false, encoding); return }
+    tab.flush()
+    if (tab.dirty) {
+      const answer = await confirmUnsaved(tab.name)
+      if (answer === 'cancel' || answer === 'save' && !await save()) return
+    }
+    const result = await invoke<OpenedDocument>('reload_document', { documentId: id, encoding })
+    tab.reload(result)
+    updateStatus(); drafts.schedule(); toast('已重新载入文档')
+  })
+})
 get<HTMLSelectElement>('heading').addEventListener('change', event => {
   const select = event.target as HTMLSelectElement
   const tab = current()
@@ -384,6 +407,11 @@ get<HTMLSelectElement>('heading').addEventListener('change', event => {
   else tab.source.insert(select.value === 'p' ? '' : '#'.repeat(Number(select.value.slice(1))) + ' ', '', '标题')
   select.value = 'p'
 })
+document.addEventListener('keydown', event => {
+  if (event.key !== 'F3') return
+  event.preventDefault(); event.stopImmediatePropagation()
+  if (!event.isComposing && !busy && current() && !document.querySelector('dialog:modal')) current().search.next(event.shiftKey)
+}, true)
 document.addEventListener('keydown', event => {
   if (event.isComposing || busy || !current() || !(event.ctrlKey || event.metaKey)) return
   const key = event.key.toLowerCase()
@@ -396,7 +424,7 @@ document.addEventListener('keydown', event => {
 
 document.addEventListener('keydown', event => {
   if (event.isComposing || busy || !current() || document.querySelector('dialog:modal')) return
-  if (event.key === 'Escape') { current().source.closeSearch(); return }
+  if (event.key === 'Escape') { current().search.close(); return }
   if ((event.target as HTMLElement).closest('.find-dialog')) return
   const tabNavigation = (event.target as HTMLElement).matches('[role="tab"]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)
   const key = event.key.toLowerCase()

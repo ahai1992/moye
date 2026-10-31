@@ -4,7 +4,8 @@ import { PreviewEditor } from './preview-editor'
 import { editText } from './dialogs'
 import { headingText, markdownHeadings } from './markdown'
 import { BlockCopy } from './block-copy'
-import { PreviewSearchHighlights } from './search-highlights'
+import { DocumentSearch } from './document-search'
+import { PreviewPosition, sourceAnchor, restoreSource, type ReadingAnchor } from './preview-position'
 
 export interface OutlineHeading { level: number; text: string; from?: number; element?: HTMLElement }
 
@@ -26,12 +27,16 @@ export class DocumentTab {
   content: string
   savedContent: string
   lineEnding: string
+  encoding: string
   draftContent: string | null = null
   readonly root = document.createElement('div')
   readonly previewScroll = document.createElement('div')
   readonly previewHost = document.createElement('article')
   readonly sourceHost = document.createElement('div')
-  private searchHighlights = new PreviewSearchHighlights(this.previewHost)
+  readonly search: DocumentSearch
+  private position?: PreviewPosition
+  private scrollRevision = 0
+  private readingAnchor?: ReadingAnchor
   private editors?: { source: SourceEditor; preview: PreviewEditor }
   private copy?: BlockCopy
   private active = false
@@ -48,6 +53,7 @@ export class DocumentTab {
     this.content = document.content
     this.savedContent = document.path ? document.content : ''
     this.lineEnding = document.lineEnding
+    this.encoding = document.encoding ?? 'UTF-8'
     this.root.className = 'document-view'
     this.root.id = `panel-${this.id}`
     this.root.setAttribute('role', 'tabpanel')
@@ -57,6 +63,7 @@ export class DocumentTab {
     this.sourceHost.className = 'source-editor'
     this.previewScroll.append(this.previewHost)
     this.root.append(this.previewScroll, this.sourceHost)
+    this.search = new DocumentSearch(this, onError)
   }
 
   get dirty() { return this.content !== this.savedContent }
@@ -64,6 +71,7 @@ export class DocumentTab {
   get preview() { return this.editors!.preview }
 
   selectedText() {
+    if (document.activeElement?.closest('.find-dialog')) return ''
     if (this.view.mode === 'source') {
       if (!this.source.view.hasFocus) return ''
       const { from, to } = this.source.view.state.selection.main
@@ -76,8 +84,8 @@ export class DocumentTab {
 
   private ensureEditors() {
     if (this.editors) return
-    const changed = (content: string) => { this.content = content; this.onChange(this) }
-    const source = new SourceEditor(this.sourceHost, changed, this.content, this.view.wrap, query => this.searchHighlights.setQuery(query))
+    const changed = (content: string) => { this.content = content; this.position?.invalidate(); this.search.schedule(); this.onChange(this) }
+    const source = new SourceEditor(this.sourceHost, changed, this.content, this.view.wrap, () => this.search.schedule())
     const preview = new PreviewEditor(this.previewHost, changed, (value, kind) => {
       if (kind === 'chapter') {
         return editText('替换当前章节', '包含当前标题及下级内容，至下一个同级或更高级标题之前。Ctrl+Enter 应用修改。', value, 'block')
@@ -91,6 +99,9 @@ export class DocumentTab {
       return editText(names[kind] ?? '编辑内容', '修改这一处的 Markdown 内容，确定后回到原来的位置。', value, true)
     }, this.onError, this.id)
     this.editors = { source, preview }
+    this.position?.destroy()
+    this.position = new PreviewPosition(preview, this.previewScroll, this.root)
+    source.setSearch(this.search.query)
     this.copy ??= new BlockCopy(this.previewHost, this.onError,
       target => this.preview.replaceBlock(target), target => this.preview.copyBlock(target))
     try { preview.setValue(this.content, true) }
@@ -111,11 +122,13 @@ export class DocumentTab {
   }
 
   deactivate() {
-    this.editors?.source.closeSearch()
+    this.search.close()
     this.flush()
     this.captureView()
     this.active = false
-    this.searchHighlights.setActive(false)
+    this.search.setActive(false)
+    this.position?.setActive(false)
+    this.scrollRevision++
     this.root.hidden = true
     for (const element of [this.previewHost, this.previewScroll, this.sourceHost]) element.removeAttribute('id')
   }
@@ -123,19 +136,21 @@ export class DocumentTab {
   private showMode() {
     this.previewScroll.hidden = this.view.mode !== 'preview'
     this.sourceHost.hidden = this.view.mode !== 'source'
-    this.searchHighlights.setActive(this.active && this.view.mode === 'preview')
+    this.search.setActive(this.active)
+    this.position?.setActive(this.active && this.view.mode === 'preview')
   }
 
   private restoreScroll() {
+    const revision = ++this.scrollRevision
     requestAnimationFrame(() => {
-      if (!this.active || !this.editors) return
+      if (!this.active || !this.editors || revision !== this.scrollRevision) return
       this.source.view.requestMeasure()
       const scroller = this.view.mode === 'preview' ? this.previewScroll : this.source.scrollElement
       const position = this.view[this.view.mode]
       scroller.scrollTop = position.top
       scroller.scrollLeft = position.left
       requestAnimationFrame(() => {
-        if (!this.active) return
+        if (!this.active || revision !== this.scrollRevision) return
         scroller.scrollTop = position.top
         scroller.scrollLeft = position.left
       })
@@ -157,16 +172,25 @@ export class DocumentTab {
 
   setMode(mode: ViewState['mode']) {
     if (mode === this.view.mode) return
-    this.source.closeSearch()
     this.flush()
+    const anchor = this.view.mode === 'preview' ? this.position!.capture(this.readingAnchor) : sourceAnchor(this.source, this.readingAnchor)
+    this.readingAnchor = anchor
     this.captureView()
+    const revision = ++this.scrollRevision
     if (mode === 'preview') this.preview.setValue(this.content)
     else this.source.setValue(this.content)
     this.view.mode = mode
     this.showMode()
     if (mode === 'preview') this.preview.focus()
     else this.source.focus()
-    this.restoreScroll()
+    const restore = () => {
+      if (!this.active || revision !== this.scrollRevision) return
+      if (mode === 'preview') this.position!.restore(anchor)
+      else restoreSource(this.source, anchor)
+      this.captureView()
+      this.search.schedule()
+    }
+    requestAnimationFrame(() => { restore(); requestAnimationFrame(restore) })
   }
 
   setWrapping(wrap: WrapMode) {
@@ -209,11 +233,13 @@ export class DocumentTab {
 
   preserveViewport(change: () => void) {
     if (this.view.mode === 'source') { this.source.preserveViewport(change); return }
+    const reading = this.position!.capture()
     const top = this.previewScroll.getBoundingClientRect().top
     const anchor = Array.from(this.previewHost.children).find(child => child.getBoundingClientRect().bottom > top)
     const offset = anchor?.getBoundingClientRect().top ?? 0
     change()
-    if (anchor) this.previewScroll.scrollTop += anchor.getBoundingClientRect().top - offset
+    if (anchor?.isConnected) this.previewScroll.scrollTop += anchor.getBoundingClientRect().top - offset
+    else this.position!.restore(reading)
   }
 
   markSaved(document: OpenedDocument) {
@@ -221,12 +247,15 @@ export class DocumentTab {
     this.path = document.path
     this.name = document.name
     this.lineEnding = document.lineEnding
+    this.encoding = document.encoding ?? 'UTF-8'
     this.savedContent = document.content
     this.draftContent = null
     if (moved) this.editors?.preview.refreshImages()
   }
 
   reload(document: OpenedDocument) {
+    this.readingAnchor = undefined
+    this.search.close()
     this.captureView()
     this.content = document.content
     this.markSaved(document)
@@ -244,7 +273,8 @@ export class DocumentTab {
     this.editors?.source.destroy()
     this.editors?.preview.destroy()
     this.copy?.destroy()
-    this.searchHighlights.destroy()
+    this.search.destroy()
+    this.position?.destroy()
     this.root.remove()
   }
 }
